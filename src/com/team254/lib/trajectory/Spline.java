@@ -4,7 +4,6 @@ import com.team254.lib.util.ChezyMath;
 
 /**
  * 
- * 
  * This class defines methods for doing cubic and quintic spline interpolation between 2 points.
  * 
  * It encapsulates spline data by defnining a static method for interpolating the spline 
@@ -122,7 +121,7 @@ public class Spline {
       return false;
     }
     
-    //set direct distance
+    //set direct point to point distance
     result.knot_distance_ = x1_hat;
     
     //calculate angle between the 2 points
@@ -226,21 +225,36 @@ public class Spline {
   public double getPercentageForDistance(double distance) {
 	//set sample count (1/dt)
     final int kNumSamples = 100000;
+    
+    //set starting variables for arc-length integral
     double arc_length = 0;
     double t = 0;
     double last_arc_length = 0;
     double dydt;
+    
+    //set starting integral values
     double integrand, last_integrand
             = Math.sqrt(1 + derivativeAt(0) * derivativeAt(0)) / kNumSamples;
     distance /= knot_distance_;
+    
+    //Integrate arc-length, checking if the current arc-length is >= the distance argument
+    //thus the t value when the for loop breaks is the t value for the given distance
     for (int i = 1; i <= kNumSamples; ++i) {
+      //get t value on [0, 1]
       t = ((double) i) / kNumSamples;
+      
       dydt = derivativeAt(t);
+      
+      //integrate using formula
       integrand = Math.sqrt(1 + dydt * dydt) / kNumSamples;
       arc_length += (integrand + last_integrand) / 2;
+      
+      //check if distance passed
       if (arc_length > distance) {
         break;
       }
+      
+      //set prior vals
       last_integrand = integrand;
       last_arc_length = arc_length;
     }
@@ -251,69 +265,128 @@ public class Spline {
       interpolated += ((distance - last_arc_length)
               / (arc_length - last_arc_length) - 1) / (double) kNumSamples;
     }
+    
     return interpolated;
   }
 
+  /**
+   * Returns the x and y values along the curve for a given t mapped onto [0, 1]
+   * which is a percentage...sorta (it's a time percentage, not a distance one).
+   */
   public double[] getXandY(double percentage) {
+	  //instantiate array to return the values TODO: implement Vector2
     double[] result = new double[2];
 
+    //force percentage arg onto [0, 1]
     percentage = Math.max(Math.min(percentage, 1), 0);
+    
+    //calculate relative x and y (again...why are these hats?)
     double x_hat = percentage * knot_distance_;
     double y_hat = (a_ * x_hat + b_) * x_hat * x_hat * x_hat * x_hat
             + c_ * x_hat * x_hat * x_hat + d_ * x_hat * x_hat + e_ * x_hat;
 
+    //get x any components of unit theta offset
     double cos_theta = Math.cos(theta_offset_);
     double sin_theta = Math.sin(theta_offset_);
 
+    //translate values back onto original basis
+    //this is just an implelementation a the rotation matrix for theta_offset
+    //https://en.wikipedia.org/wiki/Rotation_matrix
     result[0] = x_hat * cos_theta - y_hat * sin_theta + x_offset_;
     result[1] = x_hat * sin_theta + y_hat * cos_theta + y_offset_;
+    
+    //return result array
     return result;
   }
 
+  /**
+   * Returns the y vaule of the curve for a given t mapped onto [0,1]
+   * 
+   * TODO: just make this function call getXandY since it's 95% the same.
+   */
   public double valueAt(double percentage) {
+	//force percent arg onto [0,1]
     percentage = Math.max(Math.min(percentage, 1), 0);
+    
+    //calculate relative x and y 
     double x_hat = percentage * knot_distance_;
     double y_hat = (a_ * x_hat + b_) * x_hat * x_hat * x_hat * x_hat
             + c_ * x_hat * x_hat * x_hat + d_ * x_hat * x_hat + e_ * x_hat;
 
+    //get x any components of unit theta offset
     double cos_theta = Math.cos(theta_offset_);
     double sin_theta = Math.sin(theta_offset_);
 
+    //return y value of rotation matrix of theta_offset
     double value = x_hat * sin_theta + y_hat * cos_theta + y_offset_;
     return value;
   }
 
+  /**
+   * Returns the derivative of the spline at a given value of t scaled to [0, 1]
+   * 
+   * note that this derivative isnt rotated back into the original coords
+   */
   private double derivativeAt(double percentage) {
+	//force percentage arg onto [0, 1]
     percentage = Math.max(Math.min(percentage, 1), 0);
 
+    //get x position of percentage by re-scaling to [0, (point distance)]
     double x_hat = percentage * knot_distance_;
+    
+    //get derivative at x_hat
     double yp_hat = (5 * a_ * x_hat + 4 * b_) * x_hat * x_hat * x_hat + 3 * c_ * x_hat * x_hat
             + 2 * d_ * x_hat + e_;
 
     return yp_hat;
   }
 
+  /**
+   * Reutrns the second deriveative of the spline at a given value of t scaled to [0, 1]
+   * 
+   */
   private double secondDerivativeAt(double percentage) {
+	//force percentage arg onto [0, 1]
     percentage = Math.max(Math.min(percentage, 1), 0);
 
+    
+ 	//get x position of percentage by re-scaling to [0, (point distance)]
     double x_hat = percentage * knot_distance_;
+    
+    //get second derivative at x_hat
     double ypp_hat = (20 * a_ * x_hat + 12 * b_) * x_hat * x_hat + 6 * c_ * x_hat + 2 * d_;
 
     return ypp_hat;
   }
 
+  /**
+   * Returns the angle of the derivative at a given t scaled to [0, 1]
+   * 
+   * note that this *is* rotated back to the original coordinate system
+   */
   public double angleAt(double percentage) {
+	//take atan of derivative + theta_offset (to rotate back to original coords) to get angle
     double angle = ChezyMath.boundAngle0to2PiRadians(
             Math.atan(derivativeAt(percentage)) + theta_offset_);
+    
     return angle;
   }
 
+  /**
+   * Returns change in angle / change in time of the derivative for a given t scaled to [0, 1] 
+   */
   public double angleChangeAt(double percentage) {
+	//take atan of second derivative to get rotation rate of derivative in radians
     return ChezyMath.boundAngleNegPiToPiRadians(
             Math.atan(secondDerivativeAt(percentage)));
   }
-
+  
+  /**
+   * Overrides toString to show a, b, c, d, and e values
+   */
   public String toString() {
     return "a=" + a_ + "; b=" + b_ + "; c=" + c_ + "; d=" + d_ + "; e=" + e_;
   }
+  
+  //bob was here
 }
